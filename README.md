@@ -2,6 +2,11 @@
 
 PyTorchの自動微分（autograd）を使わず、テンソル演算のみでCNNをゼロから実装し、顔検出タスクに適用するプロジェクトです。CPU・GPU（CUDA）の両方で動作します。
 
+以下のURLから、カメラを使用して自作CNNとYOLO26nでリアルタイム顔検出を行うデモも公開しています。
+カメラを使用しますが、データはクライアント側で処理されるため、安心してください。
+
+https://my-simple-cnn-vs-yolo26.vercel.app/
+
 ## 特徴
 
 - **im2col** を用いた畳み込み層の手実装（`layers/conv_layer.py`）
