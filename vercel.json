@@ -1,0 +1,12 @@
+{
+  "outputDirectory": "web",
+  "headers": [
+    {
+      "source": "/models/(.*)\\.onnx",
+      "headers": [
+        { "key": "Content-Type", "value": "application/octet-stream" },
+        { "key": "Cache-Control", "value": "public, max-age=3600" }
+      ]
+    }
+  ]
+}

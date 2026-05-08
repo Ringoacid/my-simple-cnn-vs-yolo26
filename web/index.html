@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Face Detection Demo — Custom CNN vs YOLO26n</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      background: #0d1117;
+      color: #c9d1d9;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      min-height: 100vh;
+      padding: 1rem;
+      gap: 0.6rem;
+    }
+
+    h1 {
+      font-size: 1.25rem;
+      font-weight: 600;
+      color: #f0f6fc;
+      margin-top: 0.4rem;
+    }
+    .subtitle {
+      font-size: 0.8rem;
+      color: #6e7681;
+    }
+
+    /* ── コントロール行 ── */
+    #controls {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .model-btn {
+      padding: 0.35rem 1.1rem;
+      border: 1.5px solid #30363d;
+      background: #161b22;
+      color: #8b949e;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 0.88rem;
+      transition: border-color 0.15s, color 0.15s, background 0.15s;
+    }
+    .model-btn:hover:not(:disabled) {
+      border-color: #58a6ff;
+      color: #f0f6fc;
+    }
+    .model-btn.active {
+      border-color: #388bfd;
+      background: #1c3a6a;
+      color: #79c0ff;
+      font-weight: 600;
+    }
+    .model-btn:disabled {
+      opacity: 0.4;
+      cursor: not-allowed;
+    }
+
+    /* ── ステータス行 ── */
+    #status-bar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.8rem;
+      align-items: center;
+      font-size: 0.82rem;
+      color: #6e7681;
+    }
+    .badge {
+      padding: 0.15rem 0.55rem;
+      border-radius: 4px;
+      background: #21262d;
+      font-weight: 700;
+      font-size: 0.75rem;
+      letter-spacing: 0.03em;
+    }
+    .badge.webgpu { background: #0d3a1f; color: #56d364; }
+    .badge.wasm   { background: #3d2a00; color: #e3b341; }
+
+    .threshold-row {
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+    }
+    input[type=range] { accent-color: #388bfd; width: 90px; }
+    #threshold-val { min-width: 2.8rem; text-align: right; color: #c9d1d9; }
+
+    /* ── Canvas コンテナ ── */
+    #canvas-container {
+      position: relative;
+      width: min(640px, 100%);
+    }
+
+    video {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      object-fit: fill;
+      opacity: 0;
+      pointer-events: none;
+    }
+    canvas {
+      display: block;
+      width: 100%;
+      height: 100%;
+      border: 1px solid #30363d;
+      border-radius: 6px;
+      background: #010409;
+    }
+
+    /* ── ローディングオーバーレイ ── */
+    #loading-overlay {
+      position: absolute;
+      inset: 0;
+      background: rgba(1,4,9,0.82);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 0.6rem;
+      border-radius: 6px;
+    }
+    #loading-overlay.hidden { display: none; }
+    .spinner {
+      width: 32px; height: 32px;
+      border: 3px solid #30363d;
+      border-top-color: #388bfd;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    #loading-msg { font-size: 0.9rem; color: #8b949e; }
+
+    /* ── フッター ── */
+    footer {
+      font-size: 0.72rem;
+      color: #484f58;
+      text-align: center;
+      max-width: 640px;
+      line-height: 1.6;
+    }
+    footer a { color: #58a6ff; text-decoration: none; }
+    footer a:hover { text-decoration: underline; }
+  </style>
+</head>
+<body>
+
+  <h1>Face Detection Demo</h1>
+  <p class="subtitle">Custom CNN (from scratch) vs YOLO26n — WebGPU / ONNX Runtime</p>
+
+  <div id="controls">
+    <button class="model-btn active" id="btn-cnn"  onclick="switchModel('custom_cnn')">Custom CNN</button>
+    <button class="model-btn"        id="btn-yolo" onclick="switchModel('yolo26n')">YOLO26n</button>
+  </div>
+
+  <div id="status-bar">
+    <span>FPS: <strong id="fps">--</strong></span>
+    <span>Backend: <span id="backend-badge" class="badge">--</span></span>
+    <span class="threshold-row">
+      信頼度:
+      <input type="range" id="threshold" min="0.05" max="0.95" step="0.05" value="0.5">
+      <span id="threshold-val">0.50</span>
+    </span>
+  </div>
+
+  <div id="canvas-container" style="height:480px;">
+    <video id="video" autoplay playsinline muted></video>
+    <canvas id="canvas" width="640" height="480"></canvas>
+    <div id="loading-overlay">
+      <div class="spinner"></div>
+      <span id="loading-msg">初期化中...</span>
+    </div>
+  </div>
+
+  <footer>
+    Dataset:
+    "<a href="https://universe.roboflow.com/mohamed-traore-2ekkp/face-detection-mik1i" target="_blank" rel="noopener">Face Detection</a>"
+    by Mohamed Traore &amp; Justin Brady,
+    <a href="https://universe.roboflow.com" target="_blank" rel="noopener">Roboflow Universe</a>.
+    License: <a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener">CC BY 4.0</a>.
+  </footer>
+
+  <script src="https://cdn.jsdelivr.net/npm/onnxruntime-web@1.20.1/dist/ort.webgpu.min.js"></script>
+  <script src="decode.js"></script>
+  <script src="inference.js"></script>
+  <script src="main.js"></script>
+</body>
+</html>

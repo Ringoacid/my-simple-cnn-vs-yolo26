@@ -1,0 +1,34 @@
+{
+  "custom_cnn": {
+    "file": "custom_cnn.onnx",
+    "input_shape": [
+      1,
+      3,
+      640,
+      640
+    ],
+    "output_shape": [
+      1,
+      6,
+      20,
+      20
+    ],
+    "format": "cnn_grid",
+    "grid_size": 20
+  },
+  "yolo26n": {
+    "file": "yolo26n.onnx",
+    "input_shape": [
+      1,
+      3,
+      640,
+      640
+    ],
+    "output_shape": [
+      1,
+      300,
+      6
+    ],
+    "format": "yolo_anchors"
+  }
+}
