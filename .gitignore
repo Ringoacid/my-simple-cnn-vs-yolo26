@@ -39,7 +39,8 @@ dataset/train/labels.cache
 dataset/valid/labels.cache
 
 # 学習結果
-runs/
+runs/detect/
+runs/train/
 
 # macOS
 .DS_Store
