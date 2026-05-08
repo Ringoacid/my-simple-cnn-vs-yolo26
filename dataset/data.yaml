@@ -3,11 +3,11 @@ val: ../valid/images
 test: ../test/images
 
 nc: 1
-names: ['0']
+names: ['face']
 
 roboflow:
-  workspace: jerry74536
-  project: face-i3ibd
-  version: 1
+  workspace: mohamed-traore-2ekkp
+  project: face-detection-mik1i
+  version: 25
   license: CC BY 4.0
-  url: https://universe.roboflow.com/jerry74536/face-i3ibd/dataset/1
+  url: https://universe.roboflow.com/mohamed-traore-2ekkp/face-detection-mik1i/dataset/25

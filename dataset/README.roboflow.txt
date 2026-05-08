@@ -1,8 +1,8 @@
 
-face - v1 2023-12-26 3:34pm
+Face Detection - v25 2025-02-18 8:41pm
 ==============================
 
-This dataset was exported via roboflow.com on February 13, 2026 at 8:22 PM GMT
+This dataset was exported via roboflow.com on January 25, 2026 at 4:52 PM GMT
 
 Roboflow is an end-to-end computer vision platform that helps you
 * collaborate with your team on computer vision projects
@@ -17,13 +17,18 @@ visit https://github.com/roboflow/notebooks
 
 To find over 100k other datasets and pre-trained models, visit https://universe.roboflow.com
 
-The dataset includes 9895 images.
-Face are annotated in YOLO26 format.
+The dataset includes 4270 images.
+Faces are annotated in YOLO26 format.
 
 The following pre-processing was applied to each image:
 * Auto-orientation of pixel data (with EXIF-orientation stripping)
 * Resize to 640x640 (Stretch)
 
-No image augmentation techniques were applied.
+The following augmentation was applied to create 3 versions of each source image:
+* 50% probability of horizontal flip
+* Randomly crop between 0 and 25 percent of the image
+* Random brigthness adjustment of between -22 and +22 percent
+* Random exposure adjustment of between -10 and +10 percent
+* Random Gaussian blur of between 0 and 1 pixels
 
 
