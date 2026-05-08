@@ -112,9 +112,10 @@ class DetectionHead:
             grad_box = torch.zeros_like(pred_box)
 
         # --- L_obj: 全セル BCE（背景セルは noobj_scale で重みを下げる）---
-        # YOLOv1 に倣い 0.5 とする。0.0316（損失総量均等化）では背景セルへの
-        # 勾配が弱すぎて Precision が崩壊することが判明したため変更。
-        noobj_scale = 0.5
+        # 0.0316（損失総量均等化）は背景抑制が弱すぎてP崩壊、
+        # 0.5 は背景勾配が前景の16倍になりR=0に崩壊。中間値 0.1 を採用。
+        # （背景合計: 388×0.1=38.8 vs 前景合計: 12×1.0=12 → 背景が約3倍）
+        noobj_scale = 0.1
         L_obj = -(target_obj * torch.log(pred_obj + eps)
                   + noobj_scale * (1 - target_obj) * torch.log(1 - pred_obj + eps)).mean()
         N_obj = pred_obj.numel()
