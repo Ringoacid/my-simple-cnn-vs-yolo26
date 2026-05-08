@@ -143,7 +143,7 @@ def compute_pr_data(backbone, head, loader, max_batches=None, device=None, iou_t
                 [cx[0].flatten(), cy[0].flatten(), w[0].flatten(), h[0].flatten()], dim=1
             )
 
-            kept = nms(boxes_flat, conf_flat, iou_threshold=0.4, score_threshold=0.01)
+            kept = nms(boxes_flat, conf_flat, iou_threshold=0.4, score_threshold=0.3)
             if not kept:
                 continue
 

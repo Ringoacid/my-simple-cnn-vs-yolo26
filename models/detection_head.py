@@ -81,23 +81,40 @@ class DetectionHead:
         pred_obj = pred[:, 4:5]
         pred_cls = pred[:, 5:]
 
-        # --- L_box: 正例セルのみ MSE ---
+        # --- L_box: 正例セルのみ ---
+        # cx, cy は MSE、w, h は sqrt MSE（YOLOv1 方式：小さいボックスの誤差を均等に扱う）
         mask4 = obj_mask.unsqueeze(1).expand_as(pred_box)
-        box_diff = pred_box - target_box
         if mask4.any():
             N_pos = obj_mask.sum().item()
-            L_box = (box_diff[mask4] ** 2).sum() / N_pos
-            grad_box = torch.zeros_like(pred_box)
-            grad_box[mask4] = 2.0 * box_diff[mask4] / N_pos
+
+            # cx, cy: 標準 MSE
+            diff_xy = pred_box[:, :2] - target_box[:, :2]
+            L_xy = (diff_xy[mask4[:, :2]] ** 2).sum() / N_pos
+
+            # w, h: sqrt MSE
+            eps_sqrt = 1e-6
+            sqrt_pred_wh = torch.sqrt(pred_box[:, 2:].clamp(min=eps_sqrt))
+            sqrt_tgt_wh  = torch.sqrt(target_box[:, 2:].clamp(min=0))
+            diff_wh = sqrt_pred_wh - sqrt_tgt_wh
+            L_wh = (diff_wh[mask4[:, 2:]] ** 2).sum() / N_pos
+
+            L_box = L_xy + L_wh
+
+            # 勾配
+            grad_xy = torch.zeros_like(pred_box[:, :2])
+            grad_xy[mask4[:, :2]] = 2.0 * diff_xy[mask4[:, :2]] / N_pos
+            # d/d(p) (sqrt(p) - sqrt(t))^2 = (sqrt(p) - sqrt(t)) / sqrt(p)
+            grad_wh = torch.zeros_like(pred_box[:, 2:])
+            grad_wh[mask4[:, 2:]] = diff_wh[mask4[:, 2:]] / (sqrt_pred_wh[mask4[:, 2:]] * N_pos)
+            grad_box = torch.cat([grad_xy, grad_wh], dim=1)
         else:
             L_box = torch.tensor(0.0, device=pred.device)
             grad_box = torch.zeros_like(pred_box)
 
         # --- L_obj: 全セル BCE（背景セルは noobj_scale で重みを下げる）---
-        # 訓練セット統計: 平均 12.27 物体/枚、グリッド 20×20=400 セル
-        # 正例セル 12.27 : 負例セル 387.73 = 1 : 31.6
-        # noobj_scale = 12.27 / 387.73 ≈ 0.0316 で正例・負例の損失寄与を均等化する。
-        noobj_scale = 0.0316
+        # YOLOv1 に倣い 0.5 とする。0.0316（損失総量均等化）では背景セルへの
+        # 勾配が弱すぎて Precision が崩壊することが判明したため変更。
+        noobj_scale = 0.5
         L_obj = -(target_obj * torch.log(pred_obj + eps)
                   + noobj_scale * (1 - target_obj) * torch.log(1 - pred_obj + eps)).mean()
         N_obj = pred_obj.numel()
