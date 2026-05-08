@@ -2,7 +2,8 @@
 
 /**
  * main.js
- * カメラ制御、推論ループ、Canvas描画
+ * 描画ループ（RAF）と推論ループを分離することで、
+ * WASM 推論が遅くてもビデオ描画が止まらないようにする。
  */
 
 (async () => {
@@ -18,13 +19,21 @@
   const btnCNN         = document.getElementById('btn-cnn');
   const btnYOLO        = document.getElementById('btn-yolo');
 
-  let threshold     = 0.5;
-  let rafId         = null;
-  let lastTime      = performance.now();
-  let fpsAccum      = 0;
-  let fpsCount      = 0;
+  let threshold   = 0.5;
+  let lastTime    = performance.now();
+  let fpsAccum    = 0;
+  let fpsCount    = 0;
 
-  // 640×640 オフスクリーン Canvas を1個作成して毎フレーム再利用（GC抑制）
+  // 最新の推論結果（描画ループが参照）
+  let latestBoxes = [];
+  // 推論が実行中かどうか（二重起動防止）
+  let inferring   = false;
+  // ループ停止フラグ
+  let running     = false;
+  let renderRafId = null;
+  let inferRafId  = null;
+
+  // 640×640 オフスクリーン Canvas（推論前処理用、毎フレーム再利用）
   const offscreen = document.createElement('canvas');
   offscreen.width = offscreen.height = 640;
   const offCtx = offscreen.getContext('2d');
@@ -40,12 +49,70 @@
       await new Promise(r => { video.onloadedmetadata = r; });
       canvas.width  = video.videoWidth  || 640;
       canvas.height = video.videoHeight || 480;
-      // canvas-container の高さをビデオに合わせる
       document.getElementById('canvas-container').style.height = canvas.height + 'px';
     } catch {
       alert('カメラへのアクセスが拒否されました。ブラウザの設定をご確認ください。');
       throw new Error('camera denied');
     }
+  }
+
+  // ──────────────── 描画ループ（常時60fps）────────────────
+  // 推論の遅速に関わらずビデオフレームと最新の枠を描画し続ける。
+  function renderLoop() {
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+    drawBoxes(latestBoxes);
+
+    const now = performance.now();
+    fpsAccum += now - lastTime;
+    lastTime  = now;
+    fpsCount++;
+    if (fpsAccum >= 1000) {
+      fpsEl.textContent = fpsCount.toFixed(0);
+      fpsAccum = 0;
+      fpsCount = 0;
+    }
+
+    if (running) renderRafId = requestAnimationFrame(renderLoop);
+  }
+
+  // ──────────────── 推論ループ（推論完了次第次フレームを起動）────────────────
+  // await 中は他の処理に CPU を返す。
+  // WASM が ORT Worker 内で動けば完全ノンブロッキング。
+  async function inferenceLoop() {
+    if (!running) return;
+
+    if (!inferring && !InferenceEngine.isLoading()) {
+      inferring = true;
+      offCtx.drawImage(video, 0, 0, 640, 640);
+      try {
+        const result = await InferenceEngine.runInference(offscreen);
+        if (result) {
+          latestBoxes = Decoder.decode(result.outputTensor, result.modelKey, threshold);
+        }
+      } catch (e) {
+        console.warn('推論エラー:', e);
+      }
+      inferring = false;
+    }
+
+    if (running) inferRafId = requestAnimationFrame(inferenceLoop);
+  }
+
+  // ──────────────── ループ制御 ────────────────
+  function startLoops() {
+    running      = true;
+    latestBoxes  = [];
+    lastTime     = performance.now();
+    fpsAccum     = 0;
+    fpsCount     = 0;
+    renderRafId  = requestAnimationFrame(renderLoop);
+    inferRafId   = requestAnimationFrame(inferenceLoop);
+  }
+
+  function stopLoops() {
+    running = false;
+    if (renderRafId !== null) { cancelAnimationFrame(renderRafId); renderRafId = null; }
+    if (inferRafId  !== null) { cancelAnimationFrame(inferRafId);  inferRafId  = null; }
   }
 
   // ──────────────── モデル切り替え ────────────────
@@ -59,7 +126,10 @@
       : 'YOLO26n を読み込み中...';
     loadingOverlay.classList.remove('hidden');
 
-    if (rafId !== null) { cancelAnimationFrame(rafId); rafId = null; }
+    stopLoops();
+
+    // DOM 更新をブラウザに描画させてからヘビーな処理を開始する
+    await new Promise(r => setTimeout(r, 50));
 
     try {
       const backend = await InferenceEngine.switchModel(modelKey);
@@ -75,43 +145,9 @@
       btnCNN.disabled  = false;
       btnYOLO.disabled = false;
       loadingOverlay.classList.add('hidden');
-      lastTime = performance.now();
-      rafId = requestAnimationFrame(loop);
+      startLoops();
     }
   };
-
-  // ──────────────── 推論ループ ────────────────
-  async function loop() {
-    // 640×640 にstretchしてオフスクリーンCanvasへ描画
-    offCtx.drawImage(video, 0, 0, 640, 640);
-
-    let boxes = [];
-    try {
-      const result = await InferenceEngine.runInference(offscreen);
-      if (result) {
-        boxes = Decoder.decode(result.outputTensor, result.modelKey, threshold);
-      }
-    } catch (e) {
-      console.warn('推論エラー:', e);
-    }
-
-    // 表示 Canvas にビデオフレームを描画（表示サイズに合わせてstretch）
-    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-    drawBoxes(boxes);
-
-    // FPS（1秒平均）
-    const now = performance.now();
-    fpsAccum += now - lastTime;
-    lastTime  = now;
-    fpsCount++;
-    if (fpsAccum >= 1000) {
-      fpsEl.textContent = fpsCount.toFixed(0);
-      fpsAccum = 0;
-      fpsCount = 0;
-    }
-
-    rafId = requestAnimationFrame(loop);
-  }
 
   // ──────────────── Canvas 描画 ────────────────
   function drawBoxes(boxes) {

@@ -188,7 +188,10 @@
     License: <a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener">CC BY 4.0</a>.
   </footer>
 
-  <script src="https://cdn.jsdelivr.net/npm/onnxruntime-web@1.20.1/dist/ort.webgpu.min.js"></script>
+  <!-- crossorigin="anonymous" により CORS 経由でロード → COEP (require-corp) を満たす
+       これにより SharedArrayBuffer が有効になり ORT が内部 Worker を使って
+       WASM をノンブロッキングで実行できるようになる -->
+  <script src="https://cdn.jsdelivr.net/npm/onnxruntime-web@1.20.1/dist/ort.webgpu.min.js" crossorigin="anonymous"></script>
   <script src="decode.js"></script>
   <script src="inference.js"></script>
   <script src="main.js"></script>

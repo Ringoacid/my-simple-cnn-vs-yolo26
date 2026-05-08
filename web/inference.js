@@ -8,9 +8,9 @@
  * SharedArrayBuffer を使わないためCOOP/COEPヘッダーは不要。
  */
 
-// シングルスレッドWASM: SharedArrayBuffer不要
-ort.env.wasm.numThreads = 1;
-// WASM バイナリを CDN から取得
+// COOP/COEP ヘッダーで SharedArrayBuffer が有効なら ORT は内部 Worker を使用し
+// WASM 推論がメインスレッドをブロックしなくなる。
+// numThreads は ORT に自動判定させる（SharedArrayBuffer 有無で切り替わる）。
 ort.env.wasm.wasmPaths = 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.20.1/dist/';
 
 const InferenceEngine = (() => {
