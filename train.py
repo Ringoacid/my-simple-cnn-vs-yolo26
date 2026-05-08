@@ -19,6 +19,7 @@ import time
 from pathlib import Path
 
 import torch
+from tqdm import tqdm
 
 from layers import ConvLayer
 from models import Backbone, DetectionHead, nms
@@ -117,7 +118,9 @@ def compute_pr_data(backbone, head, loader, max_batches=None, device=None, iou_t
     all_entries = []  # (conf, is_tp)
     total_gt = 0
 
-    for i, (images, targets) in enumerate(loader):
+    total = max_batches if max_batches is not None else len(loader)
+    pbar = tqdm(loader, total=total, desc='  PR/F1', leave=False)
+    for i, (images, targets) in enumerate(pbar):
         if max_batches is not None and i >= max_batches:
             break
         if device is not None:
@@ -268,7 +271,9 @@ def validate(backbone, head, loader, max_batches=None, device=None):
     """
     total_loss = 0.0
     count = 0
-    for i, (images, targets) in enumerate(loader):
+    total = max_batches if max_batches is not None else len(loader)
+    pbar = tqdm(loader, total=total, desc='  検証', leave=False)
+    for i, (images, targets) in enumerate(pbar):
         if max_batches is not None and i >= max_batches:
             break
         if device is not None:
@@ -278,12 +283,23 @@ def validate(backbone, head, loader, max_batches=None, device=None):
         loss, _ = head.compute_loss(pred, targets)
         total_loss += loss.item()
         count += 1
+        pbar.set_postfix(loss=f'{total_loss / count:.4f}')
     return total_loss / count if count > 0 else float('nan')
 
 
 # --- メインループ ---
 
-def train(epochs, batch_size, lr, max_batches, log_interval):
+def _fmt_time(seconds):
+    s = int(seconds)
+    if s < 60:
+        return f"{s}s"
+    elif s < 3600:
+        return f"{s // 60}m{s % 60:02d}s"
+    else:
+        return f"{s // 3600}h{(s % 3600) // 60:02d}m{s % 60:02d}s"
+
+
+def train(epochs, batch_size, lr, max_batches):
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     backbone = Backbone(out_channels=32, device=device)
     head = DetectionHead(in_channels=32, num_classes=1, device=device)
@@ -300,6 +316,9 @@ def train(epochs, batch_size, lr, max_batches, log_interval):
     train_loader = get_dataloader('train', batch_size=batch_size, shuffle=True)
     valid_loader = get_dataloader('valid', batch_size=batch_size, shuffle=False)
 
+    total_batches = (min(max_batches, len(train_loader)) if max_batches is not None
+                     else len(train_loader))
+
     print(f"デバイス: {device}")
     print(f"結果の保存先: {run_dir}")
     print(f"トレーニング開始: epochs={epochs}, batch_size={batch_size}, lr={lr}")
@@ -309,32 +328,30 @@ def train(epochs, batch_size, lr, max_batches, log_interval):
 
     best_val_loss = float('inf')
     last_pr_data = None
+    train_start = time.time()
+    epoch_times = []
 
     for epoch in range(1, epochs + 1):
         epoch_start = time.time()
         running_loss = 0.0
         n_batches = 0
 
-        for i, (images, targets) in enumerate(train_loader):
+        pbar = tqdm(train_loader, total=total_batches, desc=f'epoch {epoch}/{epochs}', leave=True)
+        for i, (images, targets) in enumerate(pbar):
             if max_batches is not None and i >= max_batches:
+                pbar.close()
                 break
 
             images = images.to(device)
             batch_loss = train_step(backbone, head, images, targets, lr)
             running_loss += batch_loss
             n_batches += 1
-
-            if (i + 1) % log_interval == 0:
-                avg = running_loss / n_batches
-                elapsed = time.time() - epoch_start
-                print(f"  epoch {epoch}/{epochs}  batch {i+1}  "
-                      f"loss={avg:.4f}  経過 {elapsed:.1f}s")
+            pbar.set_postfix(loss=f'{running_loss / n_batches:.4f}')
 
         train_loss = running_loss / n_batches if n_batches > 0 else float('nan')
 
         val_max = max_batches
         valid_loss = validate(backbone, head, valid_loader, max_batches=val_max, device=device)
-
         last_pr_data = compute_pr_data(
             backbone, head, valid_loader, max_batches=val_max, device=device)
         P  = last_pr_data['best_P']
@@ -342,9 +359,15 @@ def train(epochs, batch_size, lr, max_batches, log_interval):
         F1 = last_pr_data['best_f1']
 
         elapsed = time.time() - epoch_start
+        epoch_times.append(elapsed)
+        avg_epoch_time = sum(epoch_times) / len(epoch_times)
+        eta_total = avg_epoch_time * (epochs - epoch)
+        total_elapsed = time.time() - train_start
         print(f"[epoch {epoch}/{epochs}]  "
               f"train_loss={train_loss:.4f}  valid_loss={valid_loss:.4f}  "
-              f"P={P:.4f}  R={R:.4f}  F1={F1:.4f}  時間={elapsed:.1f}s")
+              f"P={P:.4f}  R={R:.4f}  F1={F1:.4f}  "
+              f"時間={_fmt_time(elapsed)}  全体経過={_fmt_time(total_elapsed)}  "
+              f"残り(全体) ~{_fmt_time(eta_total)}")
 
         csv_writer.writerow([epoch,
                              f'{train_loss:.6f}', f'{valid_loss:.6f}',
@@ -378,8 +401,6 @@ def main():
     parser.add_argument('--lr',          type=float, default=1e-3, help='学習率 (デフォルト: 1e-3)')
     parser.add_argument('--max-batches', type=int,   default=None,
                         help='1 epoch あたりの最大バッチ数（動作確認用）')
-    parser.add_argument('--log-interval', type=int,  default=10,
-                        help='損失をログする間隔（バッチ数）(デフォルト: 10)')
     args = parser.parse_args()
 
     train(
@@ -387,7 +408,6 @@ def main():
         batch_size=args.batch_size,
         lr=args.lr,
         max_batches=args.max_batches,
-        log_interval=args.log_interval,
     )
 
 
