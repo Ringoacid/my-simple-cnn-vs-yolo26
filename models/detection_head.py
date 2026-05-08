@@ -93,12 +93,16 @@ class DetectionHead:
             L_box = torch.tensor(0.0, device=pred.device)
             grad_box = torch.zeros_like(pred_box)
 
-        # --- L_obj: 全セル BCE ---
+        # --- L_obj: 全セル BCE（背景セルは noobj_scale で重みを下げる）---
+        # 訓練セット統計: 平均 12.27 物体/枚、グリッド 20×20=400 セル
+        # 正例セル 12.27 : 負例セル 387.73 = 1 : 31.6
+        # noobj_scale = 12.27 / 387.73 ≈ 0.0316 で正例・負例の損失寄与を均等化する。
+        noobj_scale = 0.0316
         L_obj = -(target_obj * torch.log(pred_obj + eps)
-                  + (1 - target_obj) * torch.log(1 - pred_obj + eps)).mean()
+                  + noobj_scale * (1 - target_obj) * torch.log(1 - pred_obj + eps)).mean()
         N_obj = pred_obj.numel()
         grad_obj = (-(target_obj / (pred_obj + eps))
-                    + (1 - target_obj) / (1 - pred_obj + eps)) / N_obj
+                    + noobj_scale * (1 - target_obj) / (1 - pred_obj + eps)) / N_obj
 
         # --- L_cls: 正例セルのみ BCE ---
         mask_cls = obj_mask.unsqueeze(1).expand_as(pred_cls)
