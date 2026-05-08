@@ -1,0 +1,50 @@
+# 記事（非公開）
+記事.md
+
+# Python
+**/__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# 仮想環境
+.env
+.venv
+env/
+venv/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# PyTorch / モデルの重み
+*.pt
+*.pth
+*.ckpt
+*.bin
+
+# データセット（画像・ラベル）
+dataset/train/images/
+dataset/train/labels/
+dataset/valid/images/
+dataset/valid/labels/
+dataset/test/images/
+dataset/test/labels/
+dataset/train/labels.cache
+dataset/valid/labels.cache
+
+# 学習結果
+runs/
+
+# macOS
+.DS_Store
+
+# IDEの設定
+.idea/
+.vscode/
+*.swp
